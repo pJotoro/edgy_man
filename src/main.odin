@@ -17,9 +17,18 @@ main :: proc() {
     t_y := f32(6*16)
 
     entities: [1]Entity
-    floor_tiles := generate_floor_tiles(6)
+    floor_tiles := [?][2]i32{
+        { 5, 7 },
+        { 6, 7 },
+        { 7, 7 },
+        { 8, 7 },
+        { 9, 10 },
+        { 10, 10 },
+        { 11, 10 },
+        { 12, 11 },
+    }
     floor_tex_id := tile_resource_create(floor_tile)
-    entities[0] = Player{state = .Idle, position = rl.Vector2{t_x, t_y}, direction = .Left}
+    entities[0] = Player{state = Player_State_Idle{}, position = rl.Vector2{t_x, t_y}, direction = .Left}
     for tile_p in floor_tiles {
         tile_create(floor_tex_id, tile_p)
     }

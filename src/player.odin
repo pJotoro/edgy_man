@@ -5,10 +5,16 @@ import rl "vendor:raylib"
 player_visualise_collision := false
 player_collision_size := [2]f32 { 22, 24 }
 player_collision_offset := [2]f32 { player_collision_size.x / 2, player_collision_size.y - grid_size.y }
+player_terminal_y_velocity :f32 = 2.0
+player_gravity : f32 = 0.008
 
 // sprite is 24 pixels tall, so the bottom is position + 24 pixels. 
 
 Player_State_Idle :: struct {
+
+}
+
+Player_State_Airborne :: struct {
 
 }
 
@@ -23,11 +29,11 @@ Player_State_Run :: struct {
 }
 
 
-Player_State :: enum {
-    Idle,
-    Inch,
-    Run,
-    Airborne,
+Player_State :: union {
+    Player_State_Idle,
+    Player_State_Inch,
+    Player_State_Run,
+    Player_State_Airborne,
 }
 
 Direction :: enum {
@@ -45,32 +51,75 @@ Player :: struct {
 
 player_update :: proc(using player: ^Player) {
 
-    old_position := position
-    if rl.IsKeyDown(.LEFT) do x -= 1
-    if rl.IsKeyDown(.RIGHT) do x += 1
-    if old_position == position {
-        state = .Idle
-        frames_moving = 0
+    movement_active : bool = true
+    col_bl := tiles_point_overlaps_tile( { player_left(player), player_feet(player) })
+    col_br := tiles_point_overlaps_tile( { player_right(player), player_feet(player) })
+    col_bm := tiles_point_overlaps_tile( { player_horizontal_centre(player), player_feet(player) })
+    col_tl := tiles_point_overlaps_tile( { player_left(player), player_head(player) })
+    col_tr := tiles_point_overlaps_tile( { player_right(player), player_head(player) })
+    col_tm := tiles_point_overlaps_tile( { player_horizontal_centre(player), player_head(player) })
+    
+    
+    grounded := col_bl || col_bm || col_br
+    wall_left := tiles_any_point_overlap_tiles( { { player_left(player), player_feet(player) - 1}, { player_left(player), player_mid_vertical(player), }, { player_left(player), player_head(player) + 1, } })
+    wall_right := tiles_any_point_overlap_tiles( { { player_right(player), player_feet(player) - 1}, { player_right(player), player_mid_vertical(player), }, { player_right(player), player_head(player) + 1, } })
+    ceiling := col_tl || col_tm || col_tr
+
+    if !grounded {
+        state = Player_State_Airborne{}
+        vertical_velocity = max(vertical_velocity + player_gravity, player_terminal_y_velocity)
     }
     else {
-        if position.x > old_position.x do direction = .Right
-        else do direction = .Left
-        frames_moving += 1
+
+        vertical_velocity = 0
+        _, was_airborne := state.(Player_State_Airborne)
+        if was_airborne {
+            state = Player_State_Idle{}
+        }
+    }
+    switch in state {
+        case Player_State_Airborne:
+            break;
+        case Player_State_Idle:
+            break;
+        case Player_State_Inch:
+            using s := &state.(Player_State_Inch)
+            movement_active = false
+            frames_left -= 1
+            if frames_left <= 0 {
+                state = Player_State_Run{animation_frames_left = 6}
+                break
+            }  
+        case Player_State_Run:
+            using s := &state.(Player_State_Run)
+            animation_frames_left -= 1
+            if animation_frames_left <= 0 {
+                animation_frames_left = 6
+                current_frame += 1
+                if current_frame >= 3 do current_frame = 0
+            }
+
     }
 
-    ground_tile_index, grounded := tiles_point_overlaps_tile({ player_horizontal_centre(player), player_feet(player) }) 
-    if !grounded do state = .Airborne // overwrite all the other stuff
-    else {
-        if frames_moving > 3 {
-            state = .Run
-        }
-        else if frames_moving > 0 {
-            state = .Inch
+    if movement_active {
+        old_position := position
+        if rl.IsKeyDown(.LEFT) && !wall_left do x -= 1
+        if rl.IsKeyDown(.RIGHT) && !wall_right do x += 1
+        if old_position == position {
+            state = Player_State_Idle{}
+            frames_moving = 0
         }
         else {
-            state = .Idle
+            if position.x > old_position.x do direction = .Right
+            else do direction = .Left
+            frames_moving += 1
+            #partial switch in state {
+                case Player_State_Idle:
+                    state = Player_State_Inch{}
+            }
         }
     }
+
     y += vertical_velocity
 
     frame_box := rl.Rectangle{ 
@@ -101,30 +150,39 @@ player_feet :: proc(using player: ^Player) -> f32 {
     return position.y + player_collision_size.y - player_collision_offset.y
 }
 
+player_mid_vertical :: proc(using player: ^Player) -> f32 {
+    return position.y - player_collision_offset.y + player_collision_size.y * 0.5
+}
+
+
+
 player_head :: proc(using player: ^Player) -> f32 {
     return position.y - player_collision_offset.y
 }
 
 player_draw :: proc(using player: ^Player) {
     draw_pos := rl.Vector2{ position.x - f32(player_collision_size.x / 2) , position.y - cast(f32)edgy_man_idle.height + cast(f32)grid_size.y }
-    switch state {
-        case .Idle:
+    switch in state {
+        case Player_State_Idle:
             if direction == .Left do rl.DrawTextureRec(edgy_man_idle, rl.Rectangle{0, 0, 24, 24}, draw_pos, rl.WHITE)
             else do rl.DrawTexturePro(edgy_man_idle, rl.Rectangle{0, 0, -24, 24}, rl.Rectangle{draw_pos.x, draw_pos.y, 24, 24}, rl.Vector2{}, 0.0, rl.WHITE)
 
-        case .Inch:
+        case Player_State_Inch:
             if direction == .Left do rl.DrawTextureRec(edgy_man_inch, rl.Rectangle{0, 0, 24, 24}, draw_pos, rl.WHITE)
             else do rl.DrawTexturePro(edgy_man_inch, rl.Rectangle{0, 0, -24, 24}, rl.Rectangle{draw_pos.x, draw_pos.y, 24, 24}, rl.Vector2{}, 0.0, rl.WHITE)
 
-        case .Run:
-            frame_x := f32((frames_moving/6)%3*32 + 32)
+        case Player_State_Run:
+            using s := &state.(Player_State_Run)
+            frame_x := f32(current_frame*32 + 32)
+
             if direction == .Left do rl.DrawTextureRec(edgy_man_run, rl.Rectangle{frame_x, 0, 32, 24}, draw_pos - rl.Vector2{32 - 24, 0}, rl.WHITE)
             else do rl.DrawTexturePro(edgy_man_run, rl.Rectangle{frame_x, 0, -32, 24}, rl.Rectangle{draw_pos.x, draw_pos.y, 32, 24}, rl.Vector2{}, 0.0, rl.WHITE)
-        case .Airborne:
+        case Player_State_Airborne:
             if direction == .Left do rl.DrawTextureRec(edgy_man_jump, rl.Rectangle{0, 0, 32, 32}, draw_pos - rl.Vector2{32 - 24, 0}, rl.WHITE)
             else do rl.DrawTexturePro(edgy_man_jump, rl.Rectangle{0, 0, -32, 32}, rl.Rectangle{draw_pos.x, draw_pos.y, 32, 32}, rl.Vector2{}, 0.0, rl.WHITE)
     }
 
+    // not "real" collision at the moment.
     if player_visualise_collision {
         rl.DrawRectangleLines(
             i32(player_left(player)), 

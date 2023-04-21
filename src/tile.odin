@@ -78,8 +78,20 @@ tile_remove :: proc(tile_id: int) -> (exists: bool) {
     return true
 }
 
-tiles_point_overlaps_tile :: proc(pixel: [2]f32) -> (tile_id: int, ok: bool) {
-    cell := [2]i32 { i32(pixel.x / f32(grid_size.x)), i32(pixel.y / f32(grid_size.y)) }
-    celldex := slice.linear_search(tile_positions[:], cell) or_return
-    return tile_ids[celldex], true
+tile_grid_cell_from_point :: #force_inline proc(point: [2]f32) -> [2]i32 {
+    return {  i32(point.x / f32(grid_size.x)), i32(point.y / f32(grid_size.y)) }
+}
+
+tiles_point_overlaps_tile :: proc(pixel: [2]f32) -> bool {
+    cell := tile_grid_cell_from_point(pixel)
+    _, found := slice.linear_search(tile_positions[:], cell) 
+    return found
+}
+
+tiles_any_point_overlap_tiles :: proc(pixels: [][2]f32) -> bool {
+    for p in pixels {
+        overlap := tiles_point_overlaps_tile(p)
+        if overlap do return true
+    }
+    return false
 }
