@@ -39,6 +39,8 @@ main :: proc() {
             if entity != nil do entity_update(&entities[entity_index])
         }
 
+        tiles_update(rl.GetFrameTime())
+
         rl.BeginDrawing()
         rl.ClearBackground(rl.RAYWHITE)
         rl.BeginMode2D(camera)
